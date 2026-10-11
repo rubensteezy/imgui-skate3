@@ -2417,6 +2417,7 @@ ImFontConfig::ImFontConfig()
     OversampleV = 0; // Auto == 1
     GlyphMaxAdvanceX = FLT_MAX;
     RasterizerMultiply = 1.0f;
+    RasterizerGamma = 1.0f;
     RasterizerDensity = 1.0f;
     EllipsisChar = 0;
 }
@@ -2883,6 +2884,27 @@ void ImFontAtlasTextureBlockPostProcess(ImFontAtlasPostProcessData* data)
     // Multiply operator (legacy)
     if (data->FontSrc->RasterizerMultiply != 1.0f)
         ImFontAtlasTextureBlockPostProcessMultiply(data, data->FontSrc->RasterizerMultiply);
+    // [rexglue patch] Coverage gamma
+    if (data->FontSrc->RasterizerGamma != 1.0f && data->FontSrc->RasterizerGamma > 0.0f)
+    {
+        unsigned char lut[256];
+        for (int i = 0; i < 256; i++)
+            lut[i] = (unsigned char)ImMin((int)(ImPow(i / 255.0f, data->FontSrc->RasterizerGamma) * 255.0f + 0.5f), 255);
+        unsigned char* pixels = (unsigned char*)data->Pixels;
+        for (int ny = data->Height; ny > 0; ny--, pixels += data->Pitch)
+        {
+            if (data->Format == ImTextureFormat_Alpha8)
+            {
+                for (ImU8* p = (ImU8*)pixels; p < (ImU8*)pixels + data->Width; p++)
+                    *p = lut[*p];
+            }
+            else if (data->Format == ImTextureFormat_RGBA32) //-V547
+            {
+                for (ImU32* p = (ImU32*)(void*)pixels; p < (ImU32*)(void*)pixels + data->Width; p++)
+                    *p = (*p & ~IM_COL32_A_MASK) | ((ImU32)lut[(*p >> IM_COL32_A_SHIFT) & 0xFF] << IM_COL32_A_SHIFT);
+            }
+        }
+    }
 }
 
 void ImFontAtlasTextureBlockPostProcessMultiply(ImFontAtlasPostProcessData* data, float multiply_factor)
